@@ -1,0 +1,60 @@
+name: Trigger auto deployment for go-container-demo
+
+# When this action will be executed
+on:
+  # Automatically trigger it when detected changes in repo
+  push:
+    branches: 
+      [ main ]
+    paths:
+    - 'dockerfile/**'
+    - '.github/workflows/go-container-demo-AutoDeployTrigger-13222860-76cd-44e9-993b-9b887c86f6da.yml'
+
+  # Allow mannually trigger 
+  workflow_dispatch:      
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout to the branch
+        uses: actions/checkout@v2
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v1
+
+      - name: Log in to container registry
+        uses: docker/login-action@v1
+        with:
+          registry: eighteleven.azurecr.io
+          username: ${{ secrets.GOCONTAINERDEMO_REGISTRY_USERNAME }}
+          password: ${{ secrets.GOCONTAINERDEMO_REGISTRY_PASSWORD }}
+
+      - name: Build and push container image to registry
+        uses: docker/build-push-action@v2
+        with:
+          push: true
+          tags: eighteleven.azurecr.io/go-container-demo:${{ github.sha }}
+          file: ./dockerfile/Dockerfile
+          context: ./dockerfile/
+
+
+  deploy:
+    runs-on: ubuntu-latest
+    needs: build
+    
+    steps:
+      - name: Azure Login
+        uses: azure/login@v1
+        with:
+          creds: ${{ secrets.GOCONTAINERDEMO_AZURE_CREDENTIALS }}
+
+
+      - name: Deploy to containerapp
+        uses: azure/CLI@v1
+        with:
+          inlineScript: |
+            az config set extension.use_dynamic_install=yes_without_prompt
+            az containerapp registry set -n go-container-demo -g go-container-app --server eighteleven.azurecr.io --username  ${{ secrets.GOCONTAINERDEMO_REGISTRY_USERNAME }} --password ${{ secrets.GOCONTAINERDEMO_REGISTRY_PASSWORD }}
+            az containerapp update -n go-container-demo -g go-container-app --image eighteleven.azurecr.io/go-container-demo:${{ github.sha }}
